@@ -6,7 +6,6 @@ def WriteFile(filePath, lines, encoding="utf-8"):
     with codecs.open(filePath, "w", encoding) as f:
         actionR = '' #定位到[Events]区域的标记
         for sline in lines:
-            print("sline:" + sline)
             if '[Events]' in sline:
                 actionR = 'ok'
                 f.write(sline)
@@ -16,6 +15,7 @@ def WriteFile(filePath, lines, encoding="utf-8"):
                     'Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding',\
                     'Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text'))
                 actionR = ''
+                print("├  已为Emby改善字幕兼容性")
             else:
                 f.write(sline)
 
@@ -29,10 +29,6 @@ def CONV_UTF8(src, dst):
         with codecs.open(src, "r", coding) as f:
             try:
                 WriteFile(dst, f.readlines(), encoding="utf-8")
-                try:
-                    print(src + "  " + coding + " to utf-8  converted!")
-                except Exception:
-                    print("print error")
             except Exception:
                 print(src +"  "+ coding+ "  read error")
 
