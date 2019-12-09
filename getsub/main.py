@@ -20,6 +20,7 @@ from getsub.sys_global_var import py, prefix
 from getsub.subhd import SubHDDownloader
 from getsub.zimuzu import ZimuzuDownloader
 from getsub.zimuku import ZimukuDownloader
+from getsub.convert import CONV_UTF8
 
 
 class GetSubtitles(object):
@@ -494,6 +495,8 @@ class GetSubtitles(object):
             with open(sub_new_name, 'wb') as sub:  # 保存字幕
                 file_handler = sub_lists_dict[one_sub]
                 sub.write(file_handler.read(one_sub))
+            if one_sub_type == '.ass':
+                CONV_UTF8(sub_new_name, sub_new_name)
 
         if self.more:  # 保存原字幕压缩包
             if rename:
@@ -789,7 +792,7 @@ def main():
 
 
     GetSubtitles(args.name, args.query, args.single, args.more,
-                 args.both, args.over, args.plex, args.debug, sub_num=args.number,
+                 args.both, args.over, "--plex", args.debug, sub_num=args.number,
                  downloader=args.downloader, sub_path=args.directory,).start()
 
 
