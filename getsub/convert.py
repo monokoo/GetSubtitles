@@ -25,12 +25,12 @@ def CONV_UTF8(src, dst):
     f = open(src, "rb")
     coding = chardet.detect(f.read())["encoding"]
     f.close()
-    if coding != "utf-8":
-        with codecs.open(src, "r", coding) as f:
-            try:
-                WriteFile(dst, f.readlines(), encoding="utf-8")
-            except Exception:
-                print(src +"  "+ coding+ "  read error")
+    # if coding != "utf-8":
+    with codecs.open(src, "r", coding) as f:
+        try:
+            WriteFile(dst, f.readlines(), encoding="utf-8")
+        except Exception:
+            print(src + "  " + coding + "  read error")
 
 if __name__ == "__main__":
     filename="the.walking.dead.s10e05.1080p.web.h264-xlf.zh.ass"
