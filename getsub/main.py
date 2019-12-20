@@ -14,6 +14,7 @@ from traceback import format_exc
 import chardet
 from guessit import guessit
 from requests import exceptions
+from requests.utils import quote
 
 from getsub.__version__ import __version__
 from getsub.sys_global_var import py, prefix
@@ -21,6 +22,8 @@ from getsub.subhd import SubHDDownloader
 from getsub.zimuzu import ZimuzuDownloader
 from getsub.zimuku import ZimukuDownloader
 from getsub.convert import CONV_UTF8
+from getsub.py7z import Py7z
+
 
 
 class GetSubtitles(object):
@@ -44,7 +47,7 @@ class GetSubtitles(object):
             'amazon prime': 'amzn'
         }
         self.sub_format_list = ['.ass', '.srt', '.ssa', '.sub']
-        self.support_file_list = ['.zip', '.rar']
+        self.support_file_list = ['.zip', '.rar', '.7z']
         self.arg_name = name
         self.sub_store_path = sub_path
         self.both = both
@@ -180,11 +183,13 @@ class GetSubtitles(object):
         title = title.strip()
 
         base_keyword = title
-        # if info_dict.get('year') and info_dict.get('type') == 'movie':
-        #    base_keyword += (' ' + str(info_dict['year']))  # 若为电影添加年份
+
         if info_dict.get('season'):
             base_keyword += (' s%s' % str(info_dict['season']).zfill(2))
         keywords.append(base_keyword)
+
+        if info_dict.get('year') and info_dict.get('type') == 'movie':
+           keywords.append(str(info_dict['year']))  # 若为电影添加年份
         if info_dict.get('episode'):
             keywords.append(' e%s' % str(info_dict['episode']).zfill(2))
         if info_dict.get('format'):
@@ -198,6 +203,9 @@ class GetSubtitles(object):
                 keywords.append(short_names)
         if info_dict.get('screen_size'):
             keywords.append(str(info_dict['screen_size']))
+
+        # 对关键字进行 URL 编码
+        keywords = [quote(_keyword) for _keyword in keywords]
         return keywords, info_dict
 
     def choose_subtitle(self, sub_dict):
@@ -206,12 +214,15 @@ class GetSubtitles(object):
             若为查询模式返回选择的字幕包名称，字幕包下载地址
             否则返回字幕字典第一个字幕包的名称，字幕包下载地址 """
 
+        exit = False
+
         if not self.query:
             chosen_sub = list(sub_dict.keys())[0]
             link = sub_dict[chosen_sub]['link']
             session = sub_dict[chosen_sub].get('session', None)
-            return [[chosen_sub, link, session]]
+            return exit, [[chosen_sub, link, session]]
 
+        print(prefix, '%3s)  Exit. Not downloading any subtitles.' % 0)
         for i, key in enumerate(sub_dict.keys()):
             if i == self.sub_num:
                 break
@@ -241,6 +252,9 @@ class GetSubtitles(object):
             except ValueError:
                 print(prefix + '  Error: only numbers accepted')
                 continue
+            if 0 in choices:
+                exit = True
+                return exit, []
             for choice in choices:
                 if not choice - 1 in indexes:
                     print(prefix +
@@ -251,7 +265,7 @@ class GetSubtitles(object):
                     link = sub_dict[chosen_sub]['link']
                     session = sub_dict[chosen_sub].get('session', None)
                     chosen_subs.append([chosen_sub, link, session])
-        return chosen_subs
+        return exit, chosen_subs
 
     def guess_subtitle(self, sublist, video_info):
 
@@ -367,6 +381,8 @@ class GetSubtitles(object):
                     sub_file_handler = zipfile.ZipFile(sub_buff, mode='r')
                 elif datatype == '.rar':
                     sub_file_handler = rarfile.RarFile(sub_buff, mode='r')
+                elif datatype == '.7z':
+                    sub_file_handler = Py7z(sub_buff)
                 sub_lists_dict.update(self.get_file_list(sub_file_handler))
 
         return sub_lists_dict
@@ -380,13 +396,22 @@ class GetSubtitles(object):
         sub_buff = BytesIO()
         sub_buff.write(sub_data_b)
 
+        if datatype == '.7z':
+            try:
+                sub_buff.seek(0)
+                file_handler = Py7z(sub_buff)
+            except:
+                # try with zipfile
+                datatype = '.zip'
         if datatype == '.zip':
             try:
+                sub_buff.seek(0)
                 file_handler = zipfile.ZipFile(sub_buff, mode='r')
             except:
                 # try with rarfile
                 datatype = '.rar'
         if datatype == '.rar':
+            sub_buff.seek(0)
             file_handler = rarfile.RarFile(sub_buff, mode='r')
 
         sub_lists_dict = dict()
@@ -512,6 +537,13 @@ class GetSubtitles(object):
     def process_archive(self, one_video, video_info,
                         sub_choice, link, session,
                         info_dict, rename=True, delete=True):
+        """ 解压字幕包，返回字幕包中字幕名列表
+
+            Return:
+                message: str, 无其它错误则为空
+                extract_sub_names: list
+        """
+        message = ''
         if py == 2:
             encoding = chardet.detect(sub_choice)['encoding']
             if isinstance(sub_choice, str):
@@ -537,59 +569,60 @@ class GetSubtitles(object):
             datatype, sub_data_bytes, msg = self.subhd. \
                 download_file(sub_choice, link)
             if msg == 'false':
-                print(prefix + ' error: '
-                               'download too frequently '
-                               'with subhd downloader, '
-                               'please change to other downloaders')
-                return
+                message = 'download too frequently with subhd downloader,' + \
+                          ' please change to other downloaders'
+                return message, None
         elif '[ZIMUKU]' in sub_choice:
             datatype, sub_data_bytes = self.zimuku.download_file(
                 sub_choice, link, session=session
            )
         extract_sub_names = []
-        if datatype in self.support_file_list:
-            # 获得猜测字幕名称
-            # 查询模式必有返回值，自动模式无猜测值返回None
-            extract_sub_names = self.extract_subtitle(
-                one_video, video_info['path'],
-                sub_choice, datatype, sub_data_bytes, info_dict,
-                rename, self.single, self.both, self.plex, delete=delete
-            )
-            if not extract_sub_names:
-                return None
-            for extract_sub_name, extract_sub_type in extract_sub_names:
-                extract_sub_name = extract_sub_name.split('/')[-1]
-                try:
-                    # zipfile: Historical ZIP filename encoding
-                    # try cp437 encoding
-                    extract_sub_name = extract_sub_name. \
-                        encode('cp437').decode('gbk')
-                except:
-                    pass
-                try:
-                    if py == 2:
-                        if isinstance(extract_sub_name, str):
-                            encoding = chardet. \
-                                detect(extract_sub_name)
-                            encoding = encoding['encoding']
-                            # reason of adding windows-1251 check:
-                            # using ZIMUZU downloader
-                            # I.Robot.2004.1080p.Bluray.x264.DTS-DEFiNiTE.mkv
-                            if 'ISO' in encoding \
-                                    or "windows-1251" in encoding:
-                                encoding = 'gbk'
-                            extract_sub_name = extract_sub_name. \
-                                decode(encoding)
-                            extract_sub_name = extract_sub_name. \
-                                encode(GetSubtitles.output_encode)
-                        else:
-                            extract_sub_name = extract_sub_name. \
-                                encode(GetSubtitles.output_encode)
-                    print(prefix + ' ' + extract_sub_name)
-                except UnicodeDecodeError:
-                    print(prefix + ' '
-                          + extract_sub_name.encode('gbk'))
-        return extract_sub_names
+        if datatype not in self.support_file_list:
+            # 不支持的压缩包类型
+            message = 'unsupported file type ' + datatype
+            return message, None
+        # 获得猜测字幕名称
+        # 查询模式必有返回值，自动模式无猜测值返回None
+        extract_sub_names = self.extract_subtitle(
+            one_video, video_info['path'],
+            sub_choice, datatype, sub_data_bytes, info_dict,
+            rename, self.single, self.both, self.plex, delete=delete
+        )
+        if not extract_sub_names:
+            return message, None
+        for extract_sub_name, extract_sub_type in extract_sub_names:
+            extract_sub_name = extract_sub_name.split('/')[-1]
+            try:
+                # zipfile: Historical ZIP filename encoding
+                # try cp437 encoding
+                extract_sub_name = extract_sub_name. \
+                    encode('cp437').decode('gbk')
+            except:
+                pass
+            try:
+                if py == 2:
+                    if isinstance(extract_sub_name, str):
+                        encoding = chardet. \
+                            detect(extract_sub_name)
+                        encoding = encoding['encoding']
+                        # reason of adding windows-1251 check:
+                        # using ZIMUZU downloader
+                        # I.Robot.2004.1080p.Bluray.x264.DTS-DEFiNiTE.mkv
+                        if 'ISO' in encoding \
+                                or "windows-1251" in encoding:
+                            encoding = 'gbk'
+                        extract_sub_name = extract_sub_name. \
+                            decode(encoding)
+                        extract_sub_name = extract_sub_name. \
+                            encode(GetSubtitles.output_encode)
+                    else:
+                        extract_sub_name = extract_sub_name. \
+                            encode(GetSubtitles.output_encode)
+                print(prefix + ' ' + extract_sub_name)
+            except UnicodeDecodeError:
+                print(prefix + ' '
+                      + extract_sub_name.encode('gbk'))
+        return message, extract_sub_names
 
     def start(self):
 
@@ -614,7 +647,7 @@ class GetSubtitles(object):
                 for i, downloader in enumerate(self.downloader):
                     try:
                         sub_dict.update(
-                            downloader.get_subtitles(tuple(keywords))
+                            downloader.get_subtitles(tuple(keywords), info_dict)
                         )
                     except ValueError as e:
                         if str(e) == 'Zimuku搜索结果出现未知结构页面':
@@ -637,21 +670,27 @@ class GetSubtitles(object):
                 extract_sub_names = []
                 # 遍历字幕包直到有猜测字幕
                 while not extract_sub_names and len(sub_dict) > 0:
-                    sub_choices = self.choose_subtitle(sub_dict)
+                    exit, sub_choices = self.choose_subtitle(sub_dict)
+                    if exit:
+                        break
                     for i, choice in enumerate(sub_choices):
                         sub_choice, link, session = choice
                         sub_dict.pop(sub_choice)
                         try:
                             if i == 0:
-                                n_extract_sub_names = self.process_archive(
+                                error, n_extract_sub_names = self.process_archive(
                                     one_video, video_info,
                                     sub_choice, link, session, info_dict)
                             else:
-                                n_extract_sub_names = self.process_archive(
+                                error, n_extract_sub_names = self.process_archive(
                                     one_video, video_info,
                                     sub_choice, link, session,
                                     info_dict, rename=False, delete=False)
-                            if not n_extract_sub_names:
+                            if error:
+                                print(prefix + ' error: ' + error)
+                                print(prefix)
+                                continue
+                            elif not n_extract_sub_names:
                                 print(prefix
                                       + ' no matched subtitle in this archive')
                                 continue

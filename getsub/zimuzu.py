@@ -29,7 +29,7 @@ class ZimuzuDownloader(object):
         self.search_url = 'http://www.zmz2019.com/search?\
                             keyword={0}&type=subtitle'
 
-    def get_subtitles(self, keywords, sub_num=5):
+    def get_subtitles(self, keywords, info_dict, sub_num=5):
 
         print(prefix + ' Searching ZIMUZU...', end='\r')
 
@@ -49,8 +49,12 @@ class ZimuzuDownloader(object):
             if '字幕(0)' not in tab_text:
                 for one_box in bs_obj.find_all('div',
                                                {'class': 'search-item'}):
-                    sub_name = '[ZMZ]' + one_box.find('p').find('font').text
+                    sub_name = '[ZMZ]' + one_box.find('strong', {'class': 'list_title'}).text
                     sub_name = sub_name.encode('utf8') if py == 2 else sub_name
+
+                    if info_dict['type'] == 'movie' and '美剧字幕' in sub_name:
+                        continue
+
                     a = one_box.find('a')
                     text = a.text.encode('utf8') if py == 2 else a.text
                     sub_url = self.site_url + a.attrs['href']
