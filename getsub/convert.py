@@ -1,4 +1,3 @@
-import os
 import chardet
 import codecs
 
